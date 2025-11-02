@@ -1,0 +1,80 @@
+#!/bin/bash
+# Monitor command - Watches for new emails in real-time
+# Usage: tm monitor <name>
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../config.sh"
+source "$SCRIPT_DIR/../lib/api.sh"
+source "$SCRIPT_DIR/../lib/db.sh"
+
+main() {
+    local name="$1"
+    
+    if [[ -z "$name" ]]; then
+        print_error "Usage: tm monitor <name>"
+        return 1
+    fi
+    
+    local account=$(db_get_account "$name")
+    if [[ -z "$account" ]]; then
+        print_error "Account '$name' not found"
+        return 1
+    fi
+    
+    local token=$(echo "$account" | jq -r '.token')
+    local address=$(echo "$account" | jq -r '.address')
+    
+    echo "Waiting for email to $address..."
+    
+    # Get initial email count
+    local initial_response=$(api_get_messages "$token")
+    local initial_messages=$(echo "$initial_response" | jq '.["hydra:member"]')
+    local initial_count=0
+    
+    if [[ "$initial_messages" != "null" && "$initial_messages" != "[]" ]]; then
+        initial_count=$(echo "$initial_messages" | jq 'length')
+    fi
+    
+    # Wait for new email
+    while true; do
+        local messages_response=$(api_get_messages "$token")
+        local messages=$(echo "$messages_response" | jq '.["hydra:member"]')
+        
+        if [[ "$messages" != "null" && "$messages" != "[]" ]]; then
+            local current_count=$(echo "$messages" | jq 'length')
+            
+            if [[ $current_count -gt $initial_count ]]; then
+                # New email arrived! Store it and show details
+                db_store_emails "$name" "$messages"
+                
+                # Get the newest email (first in array)
+                local newest_email=$(echo "$messages" | jq '.[0]')
+                local from=$(echo "$newest_email" | jq -r '.from.address')
+                local subject=$(echo "$newest_email" | jq -r '.subject // "(No Subject)"')
+                local date=$(echo "$newest_email" | jq -r '.createdAt | split("T")[0]')
+                local email_id=$(echo "$newest_email" | jq -r '.id')
+                
+                echo "Email received!"
+                echo "From: $from"
+                echo "Subject: $subject"
+                echo "Date: $date"
+                echo ""
+                
+                # Get and display full email content
+                local full_email=$(api_get_message "$token" "$email_id")
+                local text_content=$(echo "$full_email" | jq -r '.text // .html // "No content available"')
+                
+                echo "Content:"
+                echo "$text_content"
+                
+                # Exit immediately after showing the email
+                return 0
+            fi
+        fi
+        
+        sleep 5
+    done
+}
+
+# Execute main function with all arguments
+main "$@"

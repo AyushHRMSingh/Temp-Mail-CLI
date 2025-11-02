@@ -1,0 +1,22 @@
+#!/bin/bash
+# List command - Shows all stored accounts
+# Usage: tm list
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../config.sh"
+source "$SCRIPT_DIR/../lib/db.sh"
+
+main() {
+    local accounts_data=$(db_list_accounts)
+    local count=$(echo "$accounts_data" | jq 'length')
+    
+    if [[ "$count" -eq 0 ]]; then
+        echo "No accounts"
+        return 0
+    fi
+    
+    echo "$accounts_data" | jq -r '.[] | "\(.name): \(.address)"'
+}
+
+# Execute main function with all arguments
+main "$@"

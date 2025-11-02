@@ -1,0 +1,70 @@
+#!/bin/bash
+# Create command - Creates a new temporary email account
+# Usage: tm create <name> [password]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../config.sh"
+source "$SCRIPT_DIR/../lib/api.sh"
+source "$SCRIPT_DIR/../lib/db.sh"
+
+main() {
+    local name="$1"
+    local password="$2"
+    
+    if [[ -z "$name" ]]; then
+        print_error "Usage: tm create <name> [password]"
+        return 1
+    fi
+    
+    if ! api_check_deps; then
+        return 1
+    fi
+    
+    if db_account_exists "$name"; then
+        print_error "Account '$name' already exists"
+        return 1
+    fi
+    
+    # Generate password if not provided
+    if [[ -z "$password" ]]; then
+        password=$(api_generate_password)
+    fi
+    
+    # Get domain
+    local domains_response=$(api_get_domains)
+    local domain=$(echo "$domains_response" | jq -r '.["hydra:member"][] | select(.isActive == true and .isPrivate == false) | .domain' | head -1)
+    
+    if [[ -z "$domain" ]]; then
+        print_error "No domains available"
+        return 1
+    fi
+    
+    local address="${name}@${domain}"
+    
+    # Create account
+    local create_response=$(api_create_account "$address" "$password")
+    local account_id=$(api_json_get "$create_response" "id")
+    
+    if [[ -z "$account_id" || "$account_id" = "null" ]]; then
+        print_error "Failed to create account: $(api_get_error "$create_response")"
+        return 1
+    fi
+    
+    # Get token
+    api_rate_limit
+    local token_response=$(api_get_token "$address" "$password")
+    local token=$(api_json_get "$token_response" "token")
+    
+    if [[ -z "$token" || "$token" = "null" ]]; then
+        print_error "Failed to get token: $(api_get_error "$token_response")"
+        return 1
+    fi
+    
+    # Save
+    db_add_account "$name" "$address" "$password" "$token" "$account_id" "$domain"
+    
+    echo "$name: $address ($password)"
+}
+
+# Execute main function with all arguments
+main "$@"

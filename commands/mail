@@ -1,0 +1,50 @@
+#!/bin/bash
+# Mail command - Shows emails for an account
+# Usage: tm mail <name>
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../config.sh"
+source "$SCRIPT_DIR/../lib/api.sh"
+source "$SCRIPT_DIR/../lib/db.sh"
+
+main() {
+    local name="$1"
+    
+    if [[ -z "$name" ]]; then
+        print_error "Usage: tm mail <name>"
+        return 1
+    fi
+    
+    local account=$(db_get_account "$name")
+    if [[ -z "$account" ]]; then
+        print_error "Account '$name' not found"
+        return 1
+    fi
+    
+    local token=$(echo "$account" | jq -r '.token')
+    local address=$(echo "$account" | jq -r '.address')
+    
+    # Try to get fresh messages from API
+    local messages_response=$(api_get_messages "$token")
+    local api_messages=$(echo "$messages_response" | jq '.["hydra:member"]')
+    
+    # If we got fresh messages, store them
+    if [[ "$api_messages" != "null" && "$api_messages" != "[]" ]]; then
+        db_store_emails "$name" "$api_messages"
+        local messages="$api_messages"
+    else
+        # Fall back to stored messages
+        local messages=$(db_get_emails "$name")
+    fi
+    
+    if [[ "$messages" == "null" || "$messages" == "[]" ]]; then
+        echo "No mail for $address"
+        return 0
+    fi
+    
+    echo "Mail for $address:"
+    echo "$messages" | jq -r '.[] | "\(.createdAt | split("T")[0]) | \(.from.address) | \(.subject // "(No Subject)")"'
+}
+
+# Execute main function with all arguments
+main "$@"

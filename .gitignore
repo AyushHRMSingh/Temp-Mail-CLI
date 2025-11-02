@@ -1,0 +1,11 @@
+# User data - never commit
+accounts.json
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+.tmpmails/

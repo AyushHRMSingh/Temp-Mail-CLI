@@ -1,0 +1,35 @@
+#!/bin/bash
+# Delete command - Removes a temporary email account
+# Usage: tm delete <name>
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../config.sh"
+source "$SCRIPT_DIR/../lib/api.sh"
+source "$SCRIPT_DIR/../lib/db.sh"
+
+main() {
+    local name="$1"
+    
+    if [[ -z "$name" ]]; then
+        print_error "Usage: tm delete <name>"
+        return 1
+    fi
+    
+    local account=$(db_get_account "$name")
+    if [[ -z "$account" ]]; then
+        print_error "Account '$name' not found"
+        return 1
+    fi
+    
+    local token=$(echo "$account" | jq -r '.token')
+    local account_id=$(echo "$account" | jq -r '.account_id')
+    
+    # Delete from API and local DB
+    api_delete_account "$token" "$account_id" >/dev/null 2>&1
+    db_remove_account "$name"
+    
+    echo "Deleted: $name"
+}
+
+# Execute main function with all arguments
+main "$@"

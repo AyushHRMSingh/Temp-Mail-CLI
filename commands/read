@@ -1,0 +1,65 @@
+#!/bin/bash
+# Read command - Read a specific email
+# Usage: tm read <name> <number>
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../config.sh"
+source "$SCRIPT_DIR/../lib/api.sh"
+source "$SCRIPT_DIR/../lib/db.sh"
+
+main() {
+    local name="$1"
+    local number="$2"
+    
+    if [[ -z "$name" || -z "$number" ]]; then
+        print_error "Usage: tm read <name> <number>"
+        return 1
+    fi
+    
+    local account=$(db_get_account "$name")
+    if [[ -z "$account" ]]; then
+        print_error "Account '$name' not found"
+        return 1
+    fi
+    
+    # First try to get from stored emails
+    local message=$(db_get_email "$name" "$number")
+    
+    # Check if we have full message content (text field)
+    local text=$(echo "$message" | jq -r '.text // ""')
+    
+    if [[ -z "$message" || "$message" == "null" || -z "$text" ]]; then
+        # Need to fetch full message from API
+        local token=$(echo "$account" | jq -r '.token')
+        local messages_response=$(api_get_messages "$token")
+        local message_id=$(echo "$messages_response" | jq -r ".\"hydra:member\"[$((number-1))].id // empty")
+        
+        if [[ -z "$message_id" ]]; then
+            print_error "Message #$number not found"
+            return 1
+        fi
+        
+        # Get full message from API
+        message=$(api_get_message "$token" "$message_id")
+        
+        # Update the stored message with full content
+        db_update_email "$name" "$number" "$message"
+        
+        # Mark as read
+        api_mark_message_read "$token" "$message_id" >/dev/null
+    fi
+    
+    local from=$(echo "$message" | jq -r '.from.address')
+    local subject=$(echo "$message" | jq -r '.subject // "(No Subject)"')
+    local date=$(echo "$message" | jq -r '.createdAt | split("T")[0]')
+    text=$(echo "$message" | jq -r '.text // ""')
+    
+    echo "From: $from"
+    echo "Subject: $subject" 
+    echo "Date: $date"
+    echo ""
+    echo "$text"
+}
+
+# Execute main function with all arguments
+main "$@"
