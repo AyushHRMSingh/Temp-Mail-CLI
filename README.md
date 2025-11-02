@@ -29,7 +29,7 @@ sudo apt-get install curl jq openssl
 
 ### Setup
 ```bash
-git clone https://github.com/yourusername/temp-mail-cli.git
+git clone https://github.com/AyushHRMSingh/Temp-Mail-CLI.git
 cd temp-mail-cli
 ./setup.sh
 ```
